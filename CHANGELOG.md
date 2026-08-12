@@ -9,7 +9,7 @@
 - Route Sync: OptimoRoute create_or_update_orders → start_planning → poll get_planning_status → get_routes; box↔stop matching via BOX-n orderNo references; explicit surfacing of geocode failures, unmatched boxes, duplicate stop assignments; hard errors (timeout 30s, auth, HTTP) shown with retry button; mismatches block the grid until acknowledged; box-list edits invalidate a completed sync.
 - Near-duplicate address detection (same normalized street, unit stripped) flags all members of the group at scan time and again pre-sync.
 - Load Grid: configurable columns, big stop numbers, name + truncated address, tap-to-mark-loaded (dim + checkmark, not color-only), loaded/total counter, box-order vs stop-order sort toggle, NO STOP red state for unmatched boxes.
-- Settings: grid columns, OptimoRoute key/endpooint, optional CORS proxy, optional OCR.space key — all localStorage, nothing hardcoded.
+- Settings: grid columns, OptimoRoute key/endpoint, optional CORS proxy, optional OCR.space key — all localStorage, nothing hardcoded.
 - PWA: manifest, generated icons (192/512), service worker with app-shell precache + runtime caching of Tesseract CDN assets.
 
 **Tested:** `node --check` on all JS (passes). NOT yet tested: real device camera/OCR, live OptimoRoute round-trip, CORS behavior from a browser.

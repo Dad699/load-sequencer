@@ -158,11 +158,15 @@
     boxes.forEach((b) => {
       if (b.flagReason && b.flagReason.startsWith('Similar address')) { b.flagged = false; b.flagReason = ''; }
     });
-    for (const group of OCR.findNearDuplicates(boxes)) {
+    for (const { boxes: group, level } of OCR.findNearDuplicates(boxes)) {
       const nums = group.map((b) => b.scanOrder).join(', ');
+      const reason = level === 'unit'
+        ? `Similar address: boxes ${nums} share a house number — confirm apt/unit on each.`
+        : `Similar address: boxes ${nums} are on the same street — confirm house numbers.`;
       for (const b of group) {
         b.flagged = true;
-        b.flagReason = `Similar address to box(es) ${nums} — confirm apt/unit is right.`;
+        // Unit-level (worst) reason wins if a box is in both kinds of group.
+        if (!b.flagReason || level === 'unit') b.flagReason = reason;
       }
     }
     Store.saveSession();

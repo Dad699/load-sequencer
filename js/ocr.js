@@ -124,18 +124,45 @@ const OCR = (() => {
       .trim();
   }
 
-  /** Returns groups of boxes whose addresses are identical or same-street near-duplicates. */
+  /** Returns groups of near-duplicate boxes, worst first:
+      { boxes, level: 'unit' }   — same house number + street, differ only by apt/unit
+      { boxes, level: 'street' } — same street, different house numbers */
   function findNearDuplicates(boxes) {
-    const byStreet = new Map();
+    const byStreetName = new Map();
     for (const b of boxes) {
       if (!b.address) continue;
-      const key = normalizeStreet(b.address);
-      if (!key) continue;
-      if (!byStreet.has(key)) byStreet.set(key, []);
-      byStreet.get(key).push(b);
+      const full = normalizeStreet(b.address);          // "4532 maple" (unit + suffix stripped)
+      if (!full) continue;
+      const nameOnly = full.replace(/^\d+\s*/, '');     // "maple"
+      if (!nameOnly) continue;
+      if (!byStreetName.has(nameOnly)) byStreetName.set(nameOnly, []);
+      byStreetName.get(nameOnly).push({ box: b, full });
     }
-    return [...byStreet.values()].filter((group) => group.length > 1);
+    const groups = [];
+    for (const entries of byStreetName.values()) {
+      if (entries.length < 2) continue;
+      // Split into exact house-number matches (unit-level dupes)…
+      const byFull = new Map();
+      for (const e of entries) {
+        if (!byFull.has(e.full)) byFull.set(e.full, []);
+        byFull.get(e.full).push(e.box);
+      }
+      let hadUnitGroup = false;
+      for (const same of byFull.values()) {
+        if (same.length > 1) { groups.push({ boxes: same, level: 'unit' }); hadUnitGroup = true; }
+      }
+      // …and if house numbers differ, flag the whole street group once.
+      if (byFull.size > 1) {
+        groups.push({ boxes: entries.map((e) => e.box), level: 'street' });
+      } else if (!hadUnitGroup) {
+        continue;
+      }
+    }
+    return groups.sort((a, b) => (a.level === 'unit' ? -1 : 1) - (b.level === 'unit' ? -1 : 1));
   }
 
-  return { readLabel, findNearDuplicates, LOW_CONFIDENCE };
+  return { readLabel, findNearDuplicates, parseAddress, normalizeStreet, LOW_CONFIDENCE };
 })();
+
+// Allow parsing/duplicate logic to be unit-tested in Node.
+if (typeof module !== 'undefined' && module.exports) module.exports = OCR;

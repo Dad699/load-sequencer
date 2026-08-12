@@ -1,0 +1,27 @@
+{
+  "name": "load-sequencer",
+  "version": "1.0.0",
+  "description": "Phone PWA for a last-mile delivery load-out: scan box labels in physical stacking order, sync addresses to OptimoRoute, then match each box to its stop number on a floor grid before departure.",
+  "main": "sw.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dad699/load-sequencer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Dad699/load-sequencer/issues"
+  },
+  "homepage": "https://github.com/Dad699/load-sequencer#readme",
+  "dependencies": {
+    "tesseract.js": "^5.1.1"
+  }
+}

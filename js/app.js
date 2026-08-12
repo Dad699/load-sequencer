@@ -101,11 +101,22 @@
     badge.classList.toggle('low', !!read.lowConfidence);
     $('#confirm-name').value = read.name || '';
     $('#confirm-address').value = read.address || '';
+    updateUnitChip(read.address || '');
     $('#confirm-raw').textContent = read.raw || '(no text read)';
     $('#confirm-panel').hidden = false;
     $('#scan-controls').hidden = true;
     if (read.lowConfidence) $('#confirm-address').focus();
   }
+
+  // Glare can erase a unit letter at HIGH OCR confidence (see test/ocr-test.mjs),
+  // so the apt/unit token is always called out explicitly for the human to compare.
+  function updateUnitChip(address) {
+    const unit = OCR.extractUnit(address);
+    $('#confirm-unit').innerHTML = unit
+      ? `<span class="chip-label">APT/UNIT READ AS — compare with label:</span>${esc(unit.toUpperCase())}`
+      : `<span class="chip-label">NO APT/UNIT DETECTED</span>Check the label really has none`;
+  }
+  $('#confirm-address').addEventListener('input', (e) => updateUnitChip(e.target.value));
 
   function hideConfirm() {
     pendingRead = null;

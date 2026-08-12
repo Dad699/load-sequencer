@@ -14,10 +14,25 @@ const OCR = (() => {
     return worker;
   }
 
+  const WORD_LOW_CONFIDENCE = 70; // one shaky word in the address (e.g. a glare-hit apt number) must flag the read
+
   async function recognizeLocal(imageBlob) {
     const w = await getWorker();
     const { data } = await w.recognize(imageBlob);
-    return { text: data.text || '', confidence: data.confidence || 0, source: 'device' };
+    const words = [];
+    for (const block of data.blocks || []) {
+      for (const para of block.paragraphs || []) {
+        for (const line of para.lines || []) {
+          for (const word of line.words || []) {
+            words.push({ text: word.text, confidence: word.confidence });
+          }
+        }
+      }
+    }
+    if (!words.length && data.words) {
+      for (const word of data.words) words.push({ text: word.text, confidence: word.confidence });
+    }
+    return { text: data.text || '', confidence: data.confidence || 0, words, source: 'device' };
   }
 
   async function recognizeCloud(imageBlob, apiKey) {
@@ -61,16 +76,31 @@ const OCR = (() => {
       }
     }
     const parsed = parseAddress(result.text);
+    // Overall confidence can hide one damaged word (glare over an apt number),
+    // so any weak word inside the extracted name/address also flags the read.
+    let minRelevantWordConf = 100;
+    if (parsed.address && result.words && result.words.length) {
+      const relevant = norm(parsed.name + ' ' + parsed.address);
+      for (const w of result.words) {
+        const t = norm(w.text);
+        if (t && relevant.includes(t) && w.confidence < minRelevantWordConf) {
+          minRelevantWordConf = w.confidence;
+        }
+      }
+    }
     return {
       raw: result.text,
       confidence: Math.round(result.confidence),
-      lowConfidence: result.confidence < LOW_CONFIDENCE || !parsed.address,
+      lowConfidence: result.confidence < LOW_CONFIDENCE || !parsed.address ||
+        minRelevantWordConf < WORD_LOW_CONFIDENCE,
       source: result.source,
       cloudError,
       name: parsed.name,
       address: parsed.address
     };
   }
+
+  const norm = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, '');
 
   /* ---- Address extraction from raw label text ---- */
 
@@ -113,6 +143,14 @@ const OCR = (() => {
   /* ---- Near-duplicate detection ---- */
 
   const UNIT_RE = /\b(?:apt|apartment|unit|ste|suite|#|bldg|fl|floor|rm|room)\.?\s*[\w-]*\b/gi;
+
+  /** Extract the apt/unit portion of an address, '' if none. Glare can erase a
+      unit letter at HIGH OCR confidence (verified in test/ocr-test.mjs), so the
+      UI surfaces this token explicitly for the human to compare against the label. */
+  function extractUnit(address) {
+    const m = String(address).match(new RegExp(UNIT_RE.source, 'i'));
+    return m ? m[0].trim() : '';
+  }
 
   function normalizeStreet(address) {
     return address
@@ -161,7 +199,7 @@ const OCR = (() => {
     return groups.sort((a, b) => (a.level === 'unit' ? -1 : 1) - (b.level === 'unit' ? -1 : 1));
   }
 
-  return { readLabel, findNearDuplicates, parseAddress, normalizeStreet, LOW_CONFIDENCE };
+  return { readLabel, findNearDuplicates, parseAddress, normalizeStreet, extractUnit, LOW_CONFIDENCE };
 })();
 
 // Allow parsing/duplicate logic to be unit-tested in Node.

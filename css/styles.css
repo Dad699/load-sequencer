@@ -103,6 +103,13 @@ input[type=text], input[type=password], input[type=url], input[type=number], tex
   border: 2px solid #333a46; border-radius: 8px;
 }
 input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+.unit-chip {
+  margin-top: 8px; padding: 10px 12px;
+  border: 3px solid var(--warn); border-radius: 10px;
+  font-size: 20px; font-weight: 800; color: var(--fg);
+  background: var(--warn-bg);
+}
+.unit-chip .chip-label { display: block; font-size: 13px; font-weight: 700; color: var(--fg-dim); }
 #raw-ocr-details { margin-top: 10px; font-size: 14px; color: var(--fg-dim); }
 #raw-ocr-details pre { white-space: pre-wrap; padding: 8px; background: #10131a; border-radius: 8px; margin-top: 6px; }
 

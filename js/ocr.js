@@ -1,0 +1,141 @@
+/* OCR: Tesseract.js on-device first; OCR.space cloud fallback when confidence
+   is low and a key is configured. Also: address extraction heuristics and
+   near-duplicate address detection. */
+'use strict';
+
+const OCR = (() => {
+  const LOW_CONFIDENCE = 62; // below this the read is flagged, and cloud fallback kicks in if available
+  let worker = null;
+
+  async function getWorker() {
+    if (!worker) {
+      worker = await Tesseract.createWorker('eng');
+    }
+    return worker;
+  }
+
+  async function recognizeLocal(imageBlob) {
+    const w = await getWorker();
+    const { data } = await w.recognize(imageBlob);
+    return { text: data.text || '', confidence: data.confidence || 0, source: 'device' };
+  }
+
+  async function recognizeCloud(imageBlob, apiKey) {
+    const form = new FormData();
+    form.append('file', imageBlob, 'label.jpg');
+    form.append('OCREngine', '2');
+    form.append('scale', 'true');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const res = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        headers: { apikey: apiKey },
+        body: form,
+        signal: controller.signal
+      });
+      if (!res.ok) throw new Error('OCR.space HTTP ' + res.status);
+      const json = await res.json();
+      if (json.IsErroredOnProcessing) {
+        throw new Error('OCR.space: ' + [].concat(json.ErrorMessage || 'processing error').join('; '));
+      }
+      const text = (json.ParsedResults || []).map((r) => r.ParsedText).join('\n');
+      // OCR.space doesn't return a numeric confidence; treat a non-empty result as decent.
+      return { text, confidence: text.trim() ? 80 : 0, source: 'cloud' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Full pipeline: local OCR, cloud fallback on low confidence, address parse. */
+  async function readLabel(imageBlob, ocrSpaceKey) {
+    let result;
+    let cloudError = null;
+    result = await recognizeLocal(imageBlob);
+    if (result.confidence < LOW_CONFIDENCE && ocrSpaceKey) {
+      try {
+        const cloud = await recognizeCloud(imageBlob, ocrSpaceKey);
+        if (cloud.confidence > result.confidence) result = cloud;
+      } catch (e) {
+        cloudError = e.message; // keep the local read, surface that fallback failed
+      }
+    }
+    const parsed = parseAddress(result.text);
+    return {
+      raw: result.text,
+      confidence: Math.round(result.confidence),
+      lowConfidence: result.confidence < LOW_CONFIDENCE || !parsed.address,
+      source: result.source,
+      cloudError,
+      name: parsed.name,
+      address: parsed.address
+    };
+  }
+
+  /* ---- Address extraction from raw label text ---- */
+
+  const ZIP_RE = /\b\d{5}(?:-\d{4})?\b/;
+  const STATE_RE = /\b[A-Z]{2}\b/;
+  const STREET_RE = /^\d{1,6}\s+\S+/;
+
+  function parseAddress(rawText) {
+    const lines = rawText.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 1);
+    let cityIdx = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (ZIP_RE.test(lines[i]) && STATE_RE.test(lines[i].replace(ZIP_RE, ''))) { cityIdx = i; break; }
+    }
+    if (cityIdx < 0) return { name: guessName(lines), address: '' };
+
+    let streetIdx = -1;
+    for (let i = cityIdx - 1; i >= 0; i--) {
+      if (STREET_RE.test(lines[i])) { streetIdx = i; break; }
+    }
+    if (streetIdx < 0) return { name: guessName(lines.slice(0, cityIdx)), address: lines[cityIdx] };
+
+    // Street line(s) through the city/state/zip line, e.g. street + "APT 4B" line.
+    const address = lines.slice(streetIdx, cityIdx + 1).join(', ');
+    const name = guessName(lines.slice(0, streetIdx));
+    return { name, address };
+  }
+
+  function guessName(lines) {
+    // Last mostly-alphabetic line before the street — usually the recipient.
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i];
+      const letters = (l.match(/[A-Za-z]/g) || []).length;
+      if (letters >= 3 && letters / l.length > 0.6 && !/ship|track|deliver|walmart|order/i.test(l)) {
+        return l;
+      }
+    }
+    return '';
+  }
+
+  /* ---- Near-duplicate detection ---- */
+
+  const UNIT_RE = /\b(?:apt|apartment|unit|ste|suite|#|bldg|fl|floor|rm|room)\.?\s*[\w-]*\b/gi;
+
+  function normalizeStreet(address) {
+    return address
+      .toLowerCase()
+      .replace(UNIT_RE, '')
+      .replace(/[^\w\s]/g, ' ')
+      .replace(/\b(st|street|ave|avenue|rd|road|dr|drive|ln|lane|ct|court|blvd|boulevard|cir|circle|way|pl|place|ter|terrace)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /** Returns groups of boxes whose addresses are identical or same-street near-duplicates. */
+  function findNearDuplicates(boxes) {
+    const byStreet = new Map();
+    for (const b of boxes) {
+      if (!b.address) continue;
+      const key = normalizeStreet(b.address);
+      if (!key) continue;
+      if (!byStreet.has(key)) byStreet.set(key, []);
+      byStreet.get(key).push(b);
+    }
+    return [...byStreet.values()].filter((group) => group.length > 1);
+  }
+
+  return { readLabel, findNearDuplicates, LOW_CONFIDENCE };
+})();
